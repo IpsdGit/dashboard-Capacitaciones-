@@ -755,6 +755,63 @@
     }
 
     // Detección automática de la fila de encabezados en hojas con membrete institucional
+    
+    // Formateador robusto de fechas a texto largo en español (ej: martes 19 de agosto de 2025)
+    function formatDateValue(rawVal) {
+      if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '-') return '-';
+
+      const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+      const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+      // Si es objeto Date
+      if (rawVal instanceof Date && !isNaN(rawVal.getTime())) {
+        return `${dias[rawVal.getDay()]} ${rawVal.getDate()} de ${meses[rawVal.getMonth()]} de ${rawVal.getFullYear()}`;
+      }
+
+      const str = String(rawVal).trim();
+
+      // Si es un número serial de Excel (ej: 45889 o '45889')
+      if (/^\d{5}(\.\d+)?$/.test(str)) {
+        if (typeof window !== "undefined" && window.XLSX && window.XLSX.SSF && window.XLSX.SSF.parse_date_code) {
+          const parsed = window.XLSX.SSF.parse_date_code(parseFloat(str));
+          if (parsed && parsed.y && parsed.m && parsed.d) {
+            const d = new Date(parsed.y, parsed.m - 1, parsed.d);
+            return `${dias[d.getDay()]} ${parsed.d} de ${meses[parsed.m - 1]} de ${parsed.y}`;
+          }
+        }
+        const num = parseFloat(str);
+        const utcDays = Math.floor(num - 25569);
+        const date = new Date(utcDays * 86400 * 1000);
+        return `${dias[date.getUTCDay()]} ${date.getUTCDate()} de ${meses[date.getUTCMonth()]} de ${date.getUTCFullYear()}`;
+      }
+
+      // Si es formato DD/MM/YYYY o DD-MM-YYYY
+      const ddmmyyyy = str.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+      if (ddmmyyyy) {
+        const d = parseInt(ddmmyyyy[1], 10);
+        const m = parseInt(ddmmyyyy[2], 10) - 1;
+        const y = parseInt(ddmmyyyy[3], 10);
+        const date = new Date(y, m, d);
+        if (!isNaN(date.getTime())) {
+          return `${dias[date.getDay()]} ${d} de ${meses[m]} de ${y}`;
+        }
+      }
+
+      // Si es formato ISO YYYY-MM-DD
+      const isoMatch = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if (isoMatch) {
+        const y = parseInt(isoMatch[1], 10);
+        const m = parseInt(isoMatch[2], 10) - 1;
+        const d = parseInt(isoMatch[3], 10);
+        const date = new Date(y, m, d);
+        if (!isNaN(date.getTime())) {
+          return `${dias[date.getDay()]} ${d} de ${meses[m]} de ${y}`;
+        }
+      }
+
+      return str;
+    }
+
     function detectHeaderRowAndExtract(sheet) {
       const rawMatrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
       if (!rawMatrix || rawMatrix.length === 0) return [];
@@ -780,7 +837,7 @@
         }
       }
       
-      return XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "" });
+      return XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "", raw: false });
     }
 
         function mapExcelRowToRecord(row, idx) {
@@ -893,7 +950,7 @@
         Carrera: carrera,
         Departamento: depto,
         Nombre_Capacitacion: accion,
-        Fecha: cleanString(fechaRaw),
+        Fecha: formatDateValue(cleanString(fechaRaw)),
         Horario: cleanString(norm["horario"] || "-"),
         Horas_Curso: horasNum
       };
@@ -1483,7 +1540,7 @@
         if (validSheets.length === 0) {
           // Fallback a primera hoja
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+          const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
           const mapped = jsonRows.map((row, i) => mapExcelRowToRecord(row, combinedRows.length + i));
           combinedRows = combinedRows.concat(mapped);
           sheetsProcessedCount++;
