@@ -97,8 +97,8 @@
         <div>
           <label class="block text-xs font-extrabold text-[#003366] mb-1">1. Tipo de Vista</label>
           <select id="filterViewMode" onchange="onViewModeChange()" class="w-full rounded-lg border-2 border-[#003366] bg-blue-50/50 px-3 py-2 text-sm font-bold text-[#003366] focus:border-[#FFC000] focus:outline-none transition">
-            <option value="general">Dato General (Cupos)</option>
-            <option value="unico">Dato Único (Docentes)</option>
+            <option value="general">Dato General (Cupos / Todas las filas)</option>
+            <option value="unico">Dato Único (Docentes agrupados)</option>
           </select>
         </div>
         <div>
@@ -293,6 +293,9 @@
           </button>
         </div>
       </div>
+
+      <!-- BANNER DE AUDITORÍA Y DIAGNÓSTICO DE FILTROS -->
+      <div id="filterAuditBanner" class="hidden"></div>
 
       <div class="overflow-x-auto max-h-[480px]">
         <table class="w-full text-left border-collapse text-xs">
@@ -601,7 +604,7 @@
         { name: "Carrera", isDepto: false, fuzzy: true },
         { name: "Facultad", isDepto: false, fuzzy: false },
         { name: "Centro_Regional", isDepto: false, fuzzy: false },
-        { name: "Direccion", isDepto: false, fuzzy: false },
+        { name: "Direccion", isDepto: false, fuzzy: true },
         { name: "Tipo_Contratacion", isDepto: false, fuzzy: false },
         { name: "Jornada", isDepto: false, fuzzy: false },
         { name: "Nombre_Capacitacion", isDepto: false, fuzzy: false }
@@ -679,54 +682,202 @@
       return records;
     }
 
-    function mapExcelRowToRecord(row, idx) {
+    
+    // Normalización de Direcciones y Unidades Institucionales UNAH
+    function normalizeDireccion(rawVal) {
+      let s = cleanString(rawVal);
+      if (!s) return "Sin especificar";
+      
+      const cleanLower = stripAccents(s).toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      
+      if (/\b(dipp)\b/.test(cleanLower) || (cleanLower.includes("innovacion") && cleanLower.includes("produccion"))) {
+        return "Dirección de Innovación y Producción Pedagógica (DIPP)";
+      }
+      if (/\b(die)\b/.test(cleanLower) || (cleanLower.includes("innovacion") && cleanLower.includes("educativa"))) {
+        return "Dirección de Innovación Educativa (DIE)";
+      }
+      if (/\b(sedp)\b/.test(cleanLower) || cleanLower.includes("desarrollo de personal") || cleanLower.includes("recursos humanos")) {
+        return "Secretaría Ejecutiva de Desarrollo de Personal (SEDP)";
+      }
+      if (/\b(degt)\b/.test(cleanLower) || cleanLower.includes("gestion de tecnologia") || cleanLower.includes("tecnologia")) {
+        return "Dirección Ejecutiva de Gestión de Tecnología (DEGT)";
+      }
+      if (/\b(voae)\b/.test(cleanLower) || cleanLower.includes("orientacion y asuntos estudiantiles")) {
+        return "Vicerrectoría de Orientación y Asuntos Estudiantiles (VOAE)";
+      }
+      if (/\b(vra)\b/.test(cleanLower) || (cleanLower.includes("vicerrectoria") && cleanLower.includes("academica"))) {
+        return "Vicerrectoría Académica (VRA)";
+      }
+      if (/\b(dda)\b/.test(cleanLower) || (cleanLower.includes("direccion") && cleanLower.includes("docencia"))) {
+        return "Dirección de Docencia (DDA)";
+      }
+      if (/\b(dicu)\b/.test(cleanLower) || cleanLower.includes("cultura")) {
+        return "Dirección de Cultura (DICU)";
+      }
+      if (/\b(dicyht|diep)\b/.test(cleanLower) || cleanLower.includes("investigacion cientifica")) {
+        return "Dirección de Investigación Científica (DICYHT)";
+      }
+      if (/\b(seapi)\b/.test(cleanLower) || cleanLower.includes("proyectos de infraestructura")) {
+        return "Secretaría Ejecutiva de Proyectos de Infraestructura (SEAPI)";
+      }
+      if (/\b(dircom)\b/.test(cleanLower) || cleanLower.includes("comunicacion estrategica")) {
+        return "Dirección de Comunicación Estratégica (DIRCOM)";
+      }
+      
+      return s.length <= 6 && !s.includes(" ") ? s.toUpperCase() : formatSpanishText(s);
+    }
+
+    // Extractor flexible de campos soportando múltiples sinónimos y regex
+    function findRowField(rawRow, normRow, patterns, fallback = "") {
+      for (const p of patterns) {
+        if (typeof p === "string" && rawRow[p] !== undefined && String(rawRow[p]).trim() !== "") {
+          return String(rawRow[p]).trim();
+        }
+      }
+      for (const p of patterns) {
+        if (typeof p === "string") {
+          const k = stripAccents(p).toLowerCase().trim();
+          if (normRow[k] !== undefined && String(normRow[k]).trim() !== "") {
+            return String(normRow[k]).trim();
+          }
+        }
+      }
+      for (const p of patterns) {
+        if (p instanceof RegExp) {
+          for (const key of Object.keys(normRow)) {
+            if (p.test(key) && normRow[key] !== undefined && String(normRow[key]).trim() !== "") {
+              return String(normRow[key]).trim();
+            }
+          }
+        }
+      }
+      return fallback;
+    }
+
+    // Detección automática de la fila de encabezados en hojas con membrete institucional
+    function detectHeaderRowAndExtract(sheet) {
+      const rawMatrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      if (!rawMatrix || rawMatrix.length === 0) return [];
+      
+      const headerKeywords = /(nombre|docente|empleado|capacitaci|curso|taller|direcci|facultad|carrera|departamento|correo|genero|sexo|accion)/i;
+      
+      let headerRowIndex = 0;
+      let maxMatches = 0;
+      
+      const scanLimit = Math.min(15, rawMatrix.length);
+      for (let r = 0; r < scanLimit; r++) {
+        const row = rawMatrix[r];
+        if (!Array.isArray(row)) continue;
+        let matches = 0;
+        row.forEach(cell => {
+          if (cell && headerKeywords.test(String(cell))) {
+            matches++;
+          }
+        });
+        if (matches > maxMatches) {
+          maxMatches = matches;
+          headerRowIndex = r;
+        }
+      }
+      
+      return XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "" });
+    }
+
+        function mapExcelRowToRecord(row, idx) {
       const norm = {};
       Object.keys(row).forEach(k => {
         const cleanKey = k.replace(/\u00a0/g, " ").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
         norm[cleanKey] = row[k];
       });
 
-      let empId = cleanString(
-        row["Número de empleado"] || norm["número de empleado"] || norm["Número de empleado"] || norm["numero de empleado"] || norm["n° de empleado"] || norm["n de empleado"] || norm["id_docente"] || norm["codigo de empleado"] || norm["empleado"] || norm["id"] || `REG-${idx + 1}`
-      ).replace(/\.0$/, "");
+      // Empleado / ID
+      let empIdRaw = findRowField(row, norm, [
+        "Número de empleado", "Numero de empleado", "No. de empleado", "N° de empleado", "No de empleado",
+        "id_docente", "codigo de empleado", "empleado", "identidad", "dni", "cedula", "id",
+        /n[úu]mero.*empleado/i, /n[°o]\.?\s*empleado/i, /c[oó]digo.*empleado/i, /^id.*docente/i,
+        /^empleado$/i, /^identidad$/i, /^dni$/i, /^id$/i
+      ], `REG-${idx + 1}`);
+      let empId = cleanString(empIdRaw).replace(/\.0$/, "");
+      if (!empId) empId = `REG-${idx + 1}`;
 
-      let rawFullName = cleanString(
-        norm["nombre completo"] || norm["nombre_docente"] || norm["nombre del docente"] || norm["docente"] || norm["maestro"] || norm["participante"] || ""
-      );
+      // Nombre Docente
+      let rawFullName = findRowField(row, norm, [
+        "nombre completo", "nombre_docente", "nombre del docente", "docente", "maestro", "participante", "profesor",
+        /nombre.*completo/i, /nombre.*docente/i, /nombre.*participante/i, /participante/i, /docente/i, /maestro/i, /profesor/i
+      ], "");
       if (!rawFullName) {
-        const nombres = cleanString(norm["nombre(s)"] || norm["nombres"] || norm["nombre"] || "");
-        const apellidos = cleanString(norm["apellido(s)"] || norm["apellidos"] || norm["apellido"] || "");
+        const nombres = findRowField(row, norm, ["nombres", "nombre", /nombre\(s\)/i, /^nombre$/i], "");
+        const apellidos = findRowField(row, norm, ["apellidos", "apellido", /apellido\(s\)/i, /^apellido$/i], "");
         rawFullName = `${nombres} ${apellidos}`.trim();
       }
       const fullName = rawFullName ? formatSpanishText(rawFullName, "Sin Nombre Registrado") : "Sin Nombre Registrado";
 
-      let rawDir = cleanString(norm["direccion"] || norm["unidad"] || norm["dependencia"] || "");
-      let direccion = "Sin especificar";
-      if (rawDir) {
-        direccion = rawDir.length <= 6 && !rawDir.includes(" ") ? rawDir.toUpperCase() : formatSpanishText(rawDir);
-      }
+      // Dirección
+      let rawDir = findRowField(row, norm, [
+        "direccion", "dependencia", "unidad", "unidad academica", "unidad administrativa", "direccion ejecutiva", "vicerrectoria",
+        /^direcci[oó]n/i, /dependencia/i, /^unidad/i, /vicerrector/i, /gerencia/i
+      ], "");
+      let direccion = normalizeDireccion(rawDir);
 
-      let generoRaw = cleanString(norm["genero"] || norm["sexo"] || "Sin especificar");
+      // Género
+      let generoRaw = findRowField(row, norm, ["genero", "sexo", /^g[eé]nero/i, /^sexo/i], "Sin especificar");
       let genero = "Sin especificar";
-      if (generoRaw.toLowerCase().startsWith("fem") || generoRaw.toLowerCase() === "f" || generoRaw.toLowerCase() === "mujer") genero = "Femenino";
-      else if (generoRaw.toLowerCase().startsWith("masc") || generoRaw.toLowerCase() === "m" || generoRaw.toLowerCase() === "hombre") genero = "Masculino";
+      const genLow = stripAccents(generoRaw).toLowerCase().trim();
+      if (genLow.startsWith("fem") || genLow === "f" || genLow === "mujer") genero = "Femenino";
+      else if (genLow.startsWith("masc") || genLow === "m" || genLow === "hombre") genero = "Masculino";
       else if (generoRaw) genero = formatSpanishText(generoRaw);
 
-      let contratoRaw = cleanString(norm["tipo de contratacion"] || norm["tipo_contratacion"] || norm["contratacion"] || norm["categoria"] || "");
+      // Tipo de Contratación
+      let contratoRaw = findRowField(row, norm, [
+        "tipo de contratacion", "tipo_contratacion", "contratacion", "categoria",
+        /tipo.*contrataci[oó]n/i, /contrataci[oó]n/i, /^categor[ií]a/i
+      ], "");
       let contrato = contratoRaw ? formatSpanishText(contratoRaw) : "Sin especificar";
       if (contrato.toLowerCase() === "hora") contrato = "Horario";
 
-      let jornada = formatSpanishText(norm["jornada laboral"] || norm["jornada"] || "", "Sin especificar");
-      let centro = formatSpanishText(norm["centro universitario regional"] || norm["centro_regional"] || norm["centro regional"] || norm["centro"] || "", "Sin especificar");
-      let facultad = formatSpanishText(norm["facultad"] || "", "Sin especificar");
-      let rawCarrera = norm["carrera"] || "";
-      let carrera = normalizeAcademicUnit(rawCarrera, false);
-      let depto = normalizeAcademicUnit(norm["departamento"] || norm["unidad academica"] || "", true, carrera);
-      let accion = formatSpanishText(norm["accion formativa"] || norm["nombre_capacitacion"] || norm["capacitacion"] || norm["curso"] || "", "Capacitación");
+      // Jornada
+      let jornadaRaw = findRowField(row, norm, ["jornada laboral", "jornada", /jornada/i], "");
+      let jornada = formatSpanishText(jornadaRaw, "Sin especificar");
 
-      let duracionRaw = cleanString(norm["duracion"] || norm["horas_curso"] || norm["horas"] || "2");
-      let horasNum = parseFloat(duracionRaw.replace(/[^0-9.]/g, ""));
+      // Centro Regional
+      let centroRaw = findRowField(row, norm, [
+        "centro universitario regional", "centro_regional", "centro regional", "centro", "campus", "sede",
+        /centro.*regional/i, /centro.*universitario/i, /^centro$/i, /^campus$/i, /^sede$/i
+      ], "");
+      let centro = formatSpanishText(centroRaw, "Sin especificar");
+
+      // Facultad
+      let facRaw = findRowField(row, norm, ["facultad", /^facultad/i], "");
+      let facultad = formatSpanishText(facRaw, "Sin especificar");
+
+      // Carrera
+      let rawCarrera = findRowField(row, norm, ["carrera", /^carrera/i, /plan.*estudio/i], "");
+      let carrera = normalizeAcademicUnit(rawCarrera, false);
+
+      // Departamento
+      let deptoRaw = findRowField(row, norm, ["departamento", "unidad academica", /^departamento/i, /^depto/i], "");
+      let depto = normalizeAcademicUnit(deptoRaw, true, carrera);
+
+      // Acción Formativa / Capacitación
+      let accionRaw = findRowField(row, norm, [
+        "accion formativa", "nombre_capacitacion", "capacitacion", "curso", "taller", "tema", "evento", "nombre del curso", "nombre de la capacitacion", "nombre del taller",
+        /acci[oó]n\s*formativa/i, /capacitaci[oó]n/i, /nombre.*capacitaci[oó]n/i, /nombre.*curso/i, /nombre.*taller/i, /^curso/i, /^taller/i, /^tema/i, /^evento/i
+      ], "Capacitación");
+      let accion = formatSpanishText(accionRaw, "Capacitación");
+
+      // Duración / Horas
+      let duracionRaw = findRowField(row, norm, [
+        "duracion", "horas_curso", "horas", "total horas",
+        /duraci[oó]n/i, /horas.*curso/i, /^horas$/i, /total.*horas/i
+      ], "2");
+      let horasNum = parseFloat(String(duracionRaw).replace(/[^0-9.]/g, ""));
       if (isNaN(horasNum)) horasNum = 2;
+
+      // Fecha
+      let fechaRaw = findRowField(row, norm, [
+        "fecha", "mes", "periodo", "ano", "año", "pac",
+        /^fecha/i, /^mes/i, /^periodo/i, /^a[ñn]o/i, /^pac/i
+      ], "-");
 
       return {
         ID_Docente: empId,
@@ -742,7 +893,7 @@
         Carrera: carrera,
         Departamento: depto,
         Nombre_Capacitacion: accion,
-        Fecha: cleanString(norm["fecha"] || norm["mes"] || norm["periodo"] || "-"),
+        Fecha: cleanString(fechaRaw),
         Horario: cleanString(norm["horario"] || "-"),
         Horas_Curso: horasNum
       };
@@ -901,6 +1052,7 @@
       currentPage = 1;
 
       updateActiveFilterBadge();
+      updateFilterAuditBanner(isUnique);
       updateKPIs(currentFilteredData); 
       renderCharts(currentDisplayData); 
       renderTable(currentDisplayData, isUnique);
@@ -917,6 +1069,122 @@
       badge.innerHTML = activeParts.length > 0
         ? `Vista: <b>${mode}</b> | Filtro: ` + activeParts.join(" → ")
         : `Vista: <b>${mode}</b> | Mostrando todos los registros cargados`;
+    }
+
+    
+    function setFilterViewMode(mode) {
+      document.getElementById("filterViewMode").value = mode;
+      syncViewModeUI();
+      updateDashboard();
+    }
+
+    function clearOtherFiltersKeepDirection() {
+      const dirEl = document.getElementById("filterDireccion");
+      const dirVal = dirEl ? dirEl.value : "ALL";
+      filterConfig.forEach(cfg => {
+        if (cfg.id !== "filterDireccion") {
+          const el = document.getElementById(cfg.id);
+          if (el) el.value = "ALL";
+        }
+      });
+      document.getElementById("searchInput").value = "";
+      populateCascadeDropdowns();
+      if (dirEl) dirEl.value = dirVal;
+      updateDashboard();
+    }
+
+    function updateFilterAuditBanner(isUnique) {
+      const banner = document.getElementById("filterAuditBanner");
+      if (!banner) return;
+
+      if (rawData.length === 0) {
+        banner.className = "hidden";
+        banner.innerHTML = "";
+        return;
+      }
+
+      const dirVal = document.getElementById("filterDireccion") ? document.getElementById("filterDireccion").value : "ALL";
+      const otherActiveFilters = filterConfig.filter(cfg => {
+        if (cfg.id === "filterDireccion") return false;
+        const v = document.getElementById(cfg.id) ? document.getElementById(cfg.id).value : "ALL";
+        return v && v !== "ALL";
+      });
+
+      if (dirVal && dirVal !== "ALL") {
+        const rowsForThisDir = rawData.filter(r => r.Direccion === dirVal);
+        const totalDirParticipaciones = rowsForThisDir.length;
+        const uniqueDirDocentes = new Set(rowsForThisDir.map(r => r.ID_Docente || r.Nombre_Docente)).size;
+        const currentFilteredCount = currentFilteredData.length;
+        const currentDocentesCount = new Set(currentFilteredData.map(r => r.ID_Docente || r.Nombre_Docente)).size;
+
+        const hasCrossFilterReduction = currentFilteredCount < totalDirParticipaciones;
+
+        banner.className = "mx-5 my-3 p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs " + 
+          (hasCrossFilterReduction ? "bg-amber-50 border-amber-300 text-amber-900" : "bg-blue-50/80 border-blue-200 text-[#003366]");
+
+        let html = `
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="font-extrabold uppercase px-2 py-0.5 rounded text-[10px] tracking-wider ${hasCrossFilterReduction ? 'bg-amber-200 text-amber-900' : 'bg-[#003366] text-white'}">
+                Auditoría de Filtro
+              </span>
+              <span class="font-bold text-sm text-[#003366]">Dirección: ${dirVal}</span>
+            </div>
+            <p class="text-xs">
+              En el archivo original esta dirección contiene <b>${totalDirParticipaciones} participaciones/filas</b> correspondientes a <b>${uniqueDirDocentes} docentes únicos</b>.
+            </p>
+            ${isUnique 
+              ? `<p class="font-medium text-slate-700">📌 Estás en vista <b>Dato Único (Docentes)</b>: Cada fila resume a 1 docente con sus capacitaciones (${currentDisplayData.length} docentes mostrados).</p>`
+              : `<p class="font-medium text-slate-700">📌 Estás en vista <b>Dato General (Cupos)</b>: Cada fila es una capacitación individual (${currentDisplayData.length} participaciones mostradas).</p>`
+            }
+            ${hasCrossFilterReduction ? `
+              <p class="text-rose-700 font-semibold flex items-center gap-1">
+                ⚠️ Hay ${otherActiveFilters.length} sub-filtro(s) adicional(es) activo(s) reduciendo el total de ${totalDirParticipaciones} a ${currentFilteredCount} registros.
+              </p>
+            ` : ''}
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            ${isUnique ? `
+              <button onclick="setFilterViewMode('general')" class="bg-[#003366] hover:bg-[#002244] text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition">
+                Ver las ${currentFilteredCount} filas (Dato General)
+              </button>
+            ` : `
+              <button onclick="setFilterViewMode('unico')" class="bg-[#FFC000] hover:bg-[#e6ac00] text-[#003366] font-bold px-3 py-1.5 rounded-lg shadow-sm transition">
+                Ver los ${currentDocentesCount} docentes (Dato Único)
+              </button>
+            `}
+            ${hasCrossFilterReduction ? `
+              <button onclick="clearOtherFiltersKeepDirection()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition">
+                Limpiar otros filtros (Ver ${totalDirParticipaciones})
+              </button>
+            ` : ''}
+          </div>
+        `;
+
+        banner.innerHTML = html;
+      } else {
+        const totalRows = rawData.length;
+        const totalUnique = new Set(rawData.map(r => r.ID_Docente || r.Nombre_Docente)).size;
+        
+        banner.className = "mx-5 my-3 p-3 rounded-lg border bg-slate-50 border-slate-200 text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs";
+        banner.innerHTML = `
+          <div>
+            Total en archivo: <b>${totalRows.toLocaleString()} participaciones</b> (${totalUnique.toLocaleString()} docentes únicos).
+            Actualmente viendo: <b>${isUnique ? `Dato Único (${currentDisplayData.length.toLocaleString()} docentes)` : `Dato General (${currentDisplayData.length.toLocaleString()} filas)`}</b>.
+          </div>
+          <div class="flex items-center gap-2">
+            ${isUnique ? `
+              <button onclick="setFilterViewMode('general')" class="text-[#003366] hover:underline font-bold">
+                Cambiar a Dato General (ver todas las filas) →
+              </button>
+            ` : `
+              <button onclick="setFilterViewMode('unico')" class="text-[#003366] hover:underline font-bold">
+                Cambiar a Dato Único (agrupar por docente) →
+              </button>
+            `}
+          </div>
+        `;
+      }
     }
 
     function updateKPIs(data) {
@@ -1188,24 +1456,57 @@
     // =========================================================================
     // 7. LECTURA DE ARCHIVOS EXCEL (.XLSX / .CSV)
     // =========================================================================
-    async function processExcelFiles(fileList, append = false) {
+        async function processExcelFiles(fileList, append = false) {
       if (!fileList || fileList.length === 0) return;
 
       let combinedRows = append ? [...rawData] : [];
       let filesRead = 0;
+      let sheetsProcessedCount = 0;
 
       for (const file of fileList) {
         const arrayBuffer = await file.arrayBuffer();
         const data = new Uint8Array(arrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
 
-        const targetSheetName = workbook.SheetNames.find(
-          n => n.toLowerCase().includes("general") || n.toLowerCase().includes("hoja1") || n.toLowerCase().includes("base")
-        ) || workbook.SheetNames[0];
+        // Identificar todas las hojas que puedan contener datos estructurados
+        const validSheets = [];
+        workbook.SheetNames.forEach(sName => {
+          const sheet = workbook.Sheets[sName];
+          if (sheet && sheet["!ref"]) {
+            const rows = detectHeaderRowAndExtract(sheet);
+            if (rows.length > 0) {
+              validSheets.push({ name: sName, rows });
+            }
+          }
+        });
 
-        const jsonRows = XLSX.utils.sheet_to_json(workbook.Sheets[targetSheetName], { defval: "" });
-        const mapped = jsonRows.map((row, i) => mapExcelRowToRecord(row, combinedRows.length + i));
-        combinedRows = combinedRows.concat(mapped);
+        if (validSheets.length === 0) {
+          // Fallback a primera hoja
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+          const mapped = jsonRows.map((row, i) => mapExcelRowToRecord(row, combinedRows.length + i));
+          combinedRows = combinedRows.concat(mapped);
+          sheetsProcessedCount++;
+        } else {
+          // Si una hoja se llama 'general', 'base' o 'consolidado', o si tienen datos similares
+          const mainSheet = validSheets.find(s => 
+            /general|consolidado|base|maestro|todas/i.test(s.name)
+          );
+
+          if (mainSheet && validSheets.length > 1 && mainSheet.rows.length >= 50) {
+            // Se usa la hoja principal consolidada
+            const mapped = mainSheet.rows.map((row, i) => mapExcelRowToRecord(row, combinedRows.length + i));
+            combinedRows = combinedRows.concat(mapped);
+            sheetsProcessedCount++;
+          } else {
+            // Procesar las hojas válidas
+            validSheets.forEach(s => {
+              const mapped = s.rows.map((row, i) => mapExcelRowToRecord(row, combinedRows.length + i));
+              combinedRows = combinedRows.concat(mapped);
+              sheetsProcessedCount++;
+            });
+          }
+        }
         filesRead++;
       }
 
@@ -1216,17 +1517,23 @@
 
       combinedRows = unifyCanonicalValues(combinedRows);
 
+      // Deduplicación no destructiva: Solo descartar filas que sean duplicados 100% exactos en todos los datos
       const seenExact = new Set();
+      let duplicatesCount = 0;
       rawData = combinedRows.filter(r => {
-        const uniqueRowSignature = `${r.ID_Docente}|${getComparisonKey(r.Nombre_Capacitacion)}|${r.Fecha}`;
-        if (seenExact.has(uniqueRowSignature)) return false;
+        const uniqueRowSignature = `${r.ID_Docente}|${getComparisonKey(r.Nombre_Docente)}|${getComparisonKey(r.Nombre_Capacitacion)}|${getComparisonKey(r.Fecha)}|${getComparisonKey(r.Direccion)}|${r.Horas_Curso}`;
+        if (seenExact.has(uniqueRowSignature)) {
+          duplicatesCount++;
+          return false;
+        }
         seenExact.add(uniqueRowSignature);
         return true;
       });
 
       const uniqueTotal = new Set(rawData.map(r => r.ID_Docente || r.Nombre_Docente)).size;
+      const dupInfo = duplicatesCount > 0 ? ` (${duplicatesCount} duplicados exactos)` : '';
       document.getElementById("loadedFilesInfo").textContent =
-        `Archivos cargados: ${filesRead} | Participaciones: ${rawData.length.toLocaleString()} | Docentes únicos: ${uniqueTotal.toLocaleString()}`;
+        `Archivos cargados: ${filesRead} (hojas: ${sheetsProcessedCount}) | Participaciones: ${rawData.length.toLocaleString()}${dupInfo} | Docentes únicos: ${uniqueTotal.toLocaleString()}`;
 
       resetFilters();
     }
