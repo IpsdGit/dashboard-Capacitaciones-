@@ -151,8 +151,8 @@
           <select id="filterFecha" onchange="onCascadeChange()" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"></select>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-[#003366] mb-1">Buscar Docente / N° Empleado</label>
-          <input type="text" id="searchInput" oninput="updateDashboard()" placeholder="Nombre, N° empleado, correo..." class="w-full rounded-lg border-2 border-[#003366] px-3 py-1.5 text-sm focus:border-[#FFC000] focus:outline-none" />
+          <label class="block text-xs font-semibold text-[#003366] mb-1">Buscar Docente / N° Empleado / Correo</label>
+          <input type="text" id="searchInput" oninput="updateDashboard()" placeholder="Nombre, N° empleado puntual (ej. 12) o correo..." class="w-full rounded-lg border-2 border-[#003366] px-3 py-1.5 text-sm focus:border-[#FFC000] focus:outline-none" />
         </div>
       </div>
     </section>
@@ -1227,6 +1227,46 @@
     // =========================================================================
     // 5. ACTUALIZACIÓN EN TIEMPO REAL DE INDICADORES Y GRÁFICOS
     // =========================================================================
+    
+    // Búsqueda inteligente y puntual: N° Empleado exacto, Correo o Nombre
+    function matchDocenteSearch(row, rawQuery) {
+      if (!rawQuery) return true;
+      const q = rawQuery.trim().toLowerCase();
+      if (!q) return true;
+      const qNoAccents = stripAccents(q);
+
+      // 1. Si la consulta es puramente numérica -> Búsqueda PUNTUAL y EXACTA de N° Empleado
+      if (/^\d+$/.test(q)) {
+        const empId = cleanString(row.ID_Docente).toLowerCase();
+        if (empId === q) return true;
+        const numQ = parseInt(q, 10);
+        const numEmp = parseInt(empId, 10);
+        if (!isNaN(numQ) && !isNaN(numEmp) && numQ === numEmp && isRealEmployeeId(empId)) {
+          return true;
+        }
+        return false; // Puntual: no buscar dentro de fechas, horas o nombres cuando se ingresó un número exacto
+      }
+
+      // 2. Coincidencia en Correo Institucional (usuario o correo completo)
+      if (row.Correo && row.Correo.toLowerCase().includes(q)) {
+        return true;
+      }
+
+      // 3. Coincidencia exacta en N° Empleado alfanumérico (ej: "DOC-12")
+      if (row.ID_Docente && row.ID_Docente.toLowerCase() === q) {
+        return true;
+      }
+
+      // 4. Coincidencia en Nombre del Docente (soporta múltiples palabras y sin tildes)
+      const docName = stripAccents(row.Nombre_Docente).toLowerCase();
+      const searchWords = qNoAccents.split(/\s+/).filter(Boolean);
+      if (searchWords.length > 0 && searchWords.every(word => docName.includes(word))) {
+        return true;
+      }
+
+      return false;
+    }
+
     function updateDashboard() {
       populateCascadeDropdowns();
       const searchQuery = document.getElementById("searchInput").value.trim().toLowerCase();
@@ -1239,8 +1279,7 @@
         });
         if (!passesDropdowns) return false;
 
-        if (!searchQuery) return true;
-        return Object.values(row).some(v => String(v).toLowerCase().includes(searchQuery));
+        return matchDocenteSearch(row, searchQuery);
       });
 
       // 2. Definir la Data a Mostrar según el Tipo de Vista
