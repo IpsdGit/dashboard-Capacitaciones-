@@ -1018,11 +1018,30 @@
       else if (genLow.startsWith("masc") || genLow === "m" || genLow === "hombre") genero = "Masculino";
       else if (generoRaw) genero = formatSpanishText(generoRaw);
 
-      // Tipo de Contratación
-      let contratoRaw = findRowField(row, norm, [
-        "tipo de contratacion", "tipo_contratacion", "contratacion", "categoria",
-        /tipo.*contrataci[oó]n/i, /contrataci[oó]n/i, /^categor[ií]a/i
+      // Categoría Docente (Titular I, Titular II, Auxiliar, etc.)
+      let categoriaRaw = findRowField(row, norm, [
+        "categoria docente", "categoria", "escalafon",
+        /categor[ií]a.*docente/i, /^categor[ií]a/i, /escalaf[oó]n/i
       ], "");
+
+      // Tipo de Contratación (Permanente, Por Hora, Interino, etc.)
+      let contratoRaw = findRowField(row, norm, [
+        "tipo de contratacion", "tipo_contratacion", "contratacion", "condicion", "condicion laboral", "regimen",
+        /tipo.*contrataci[oó]n/i, /contrataci[oó]n/i, /condici[oó]n/i, /^r[eé]gimen/i
+      ], "");
+
+      const isCatVal = val => /titular|auxiliar|instructor|asistente|tit\b/i.test(String(val || ""));
+      const isContratoVal = val => /permanente|hora|horario|interin|contrat|tiempo\s+completo|medio\s+tiempo/i.test(String(val || ""));
+
+      if (!categoriaRaw && isCatVal(contratoRaw)) {
+        categoriaRaw = contratoRaw;
+        contratoRaw = findRowField(row, norm, ["condicion", "condicion laboral", "regimen", /condici[oó]n/i, /^r[eé]gimen/i], "");
+      } else if (categoriaRaw && !contratoRaw && isContratoVal(categoriaRaw)) {
+        contratoRaw = categoriaRaw;
+        categoriaRaw = "";
+      }
+
+      let categoria = categoriaRaw ? formatSpanishText(categoriaRaw) : "Sin especificar";
       let contrato = contratoRaw ? formatSpanishText(contratoRaw) : "Sin especificar";
       if (contrato.toLowerCase() === "hora") contrato = "Horario";
 
@@ -1078,6 +1097,7 @@
         Nombre_Docente: fullName,
         Correo: cleanString(norm["correo institucional"] || norm["correo"] || norm["email"] || "-").toLowerCase(),
         Genero: genero,
+        Categoria: categoria,
         Tipo_Contratacion: contrato,
         Jornada: jornada,
         Experiencia: cleanString(norm["anos de experiencia"] || norm["experiencia"] || "Sin especificar"),
@@ -1127,6 +1147,7 @@
         if (isBetterVal(r.Facultad, item.Facultad)) item.Facultad = r.Facultad;
         if (isBetterVal(r.Carrera, item.Carrera)) item.Carrera = r.Carrera;
         if (isBetterVal(r.Departamento, item.Departamento)) item.Departamento = r.Departamento;
+        if (isBetterVal(r.Categoria, item.Categoria)) item.Categoria = r.Categoria;
         if (isBetterVal(r.Tipo_Contratacion, item.Tipo_Contratacion)) item.Tipo_Contratacion = r.Tipo_Contratacion;
         if (isBetterVal(r.Jornada, item.Jornada)) item.Jornada = r.Jornada;
         if (isBetterVal(r.Genero, item.Genero)) item.Genero = r.Genero;
@@ -2112,7 +2133,21 @@
         Facultad: pickBest("Facultad"),
         Carrera: pickBest("Carrera"),
         Departamento: pickBest("Departamento"),
-        Tipo_Contratacion: pickBest("Tipo_Contratacion"),
+        Categoria: (() => {
+          const cat = pickBest("Categoria");
+          const con = pickBest("Tipo_Contratacion");
+          if (cat && cat !== "Sin especificar") return cat;
+          if (/titular|auxiliar|instructor|asistente|tit\b/i.test(String(con || ""))) return con;
+          return "Sin especificar";
+        })(),
+        Tipo_Contratacion: (() => {
+          const con = pickBest("Tipo_Contratacion");
+          if (/titular|auxiliar|instructor|asistente|tit\b/i.test(String(con || ""))) {
+            const raw = records.find(r => r.Tipo_Contratacion && !/titular|auxiliar|instructor|asistente|tit\b/i.test(r.Tipo_Contratacion));
+            return raw ? raw.Tipo_Contratacion : "Sin especificar";
+          }
+          return con || "Sin especificar";
+        })(),
         Jornada: pickBest("Jornada")
       };
     }
@@ -2131,9 +2166,13 @@
         "N° Empleado: " + (isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado") + " · " + (profile.Correo || "-");
 
       const info = [
-        ["Género", profile.Genero], ["Centro Regional", profile.Centro_Regional],
-        ["Facultad", profile.Facultad], ["Carrera", profile.Carrera],
-        ["Departamento", profile.Departamento], ["Tipo de Contratación", profile.Tipo_Contratacion],
+        ["Género", profile.Genero],
+        ["Centro Regional", profile.Centro_Regional],
+        ["Facultad", profile.Facultad],
+        ["Carrera", profile.Carrera],
+        ["Departamento", profile.Departamento],
+        ["Categoría Docente", profile.Categoria || "Sin especificar"],
+        ["Tipo de Contratación", profile.Tipo_Contratacion || "Sin especificar"],
         ["Jornada", profile.Jornada]
       ];
       document.getElementById("modalDocenteInfo").innerHTML = info.map(([k, v]) => `
@@ -2190,7 +2229,8 @@
         ["Facultad", profile.Facultad],
         ["Carrera", profile.Carrera],
         ["Departamento", profile.Departamento],
-        ["Tipo de Contratación", profile.Tipo_Contratacion],
+        ["Categoría Docente", profile.Categoria || "Sin especificar"],
+        ["Tipo de Contratación", profile.Tipo_Contratacion || "Sin especificar"],
         ["Jornada", profile.Jornada],
         ["Total capacitaciones", modalRecords.length],
         ["Total horas", totalHoras],
@@ -2232,7 +2272,8 @@
           ["Centro Regional", profile.Centro_Regional],
           ["Facultad / Carrera", profile.Facultad + " / " + profile.Carrera],
           ["Departamento", profile.Departamento],
-          ["Contratación / Jornada", profile.Tipo_Contratacion + " / " + profile.Jornada],
+          ["Categoría / Contratación", (profile.Categoria || "Sin especificar") + " · " + (profile.Tipo_Contratacion || "Sin especificar")],
+          ["Jornada", profile.Jornada],
           ["Total", modalRecords.length + " capacitaciones · " + totalHoras + " horas"]
         ]
       });
