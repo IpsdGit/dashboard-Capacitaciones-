@@ -358,7 +358,7 @@
       </div>
       <div id="docenteModalBody" class="p-6 overflow-y-auto space-y-4">
         <div id="modalDocenteInfo" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs"></div>
-        <div id="modalDocenteKpis" class="grid grid-cols-3 gap-3"></div>
+        <div id="modalDocenteKpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
         <div class="overflow-x-auto border border-slate-200 rounded-lg">
           <table class="w-full text-xs text-left">
             <thead class="bg-[#003366] text-white uppercase">
@@ -2099,6 +2099,24 @@
     // --- (7) Ficha individual del docente ---
     let modalRecords = [];
 
+    function getDireccionAcronym(dir) {
+      if (!dir || dir === "Sin especificar" || dir === "No especificado") return "Sin esp.";
+      const match = String(dir).match(/\(([A-Z0-9]+)\)/);
+      if (match) return match[1];
+      const clean = stripAccents(String(dir)).trim().toUpperCase();
+      if (clean.includes("IPSD")) return "IPSD";
+      if (clean.includes("DEGT")) return "DEGT";
+      if (clean.includes("SEDP") || clean.includes("DESARROLLO DE PERSONAL")) return "SEDP";
+      if (clean.includes("DIE") || clean.includes("INNOVACION EDUCATIVA")) return "DIE";
+      if (clean.includes("DIPP")) return "DIPP";
+      if (clean.includes("VRA")) return "VRA";
+      if (clean.includes("DDA")) return "DDA";
+      if (clean.includes("DICU")) return "DICU";
+      if (clean.includes("SEAPI")) return "SEAPI";
+      if (clean.includes("DIRCOM")) return "DIRCOM";
+      return clean.length <= 8 ? clean : clean.slice(0, 7) + "…";
+    }
+
     // Resolver de manera inteligente los datos del perfil del docente a partir de todos sus registros
     function resolveDocenteProfile(records) {
       if (!records || records.length === 0) return {};
@@ -2181,10 +2199,40 @@
           <p class="font-semibold text-[#003366]">${escapeHtml(v || "-")}</p>
         </div>`).join("");
 
+      // Agrupar capacitaciones por Dirección
+      const dirMap = new Map();
+      modalRecords.forEach(r => {
+        const tag = getDireccionAcronym(r.Direccion);
+        const full = r.Direccion || "Sin especificar";
+        if (!dirMap.has(tag)) dirMap.set(tag, { count: 0, fullName: full });
+        dirMap.get(tag).count += 1;
+      });
+
+      const dirBadgesHtml = Array.from(dirMap.entries()).map(([tag, data]) => `
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-amber-300 shadow-xs text-xs font-bold text-[#003366]" title="${escapeHtml(data.fullName)}">
+          <span>${escapeHtml(tag)}</span>
+          <span class="bg-[#003366] text-[#FFC000] text-[11px] font-extrabold px-1.5 py-0.5 rounded-full">${data.count}</span>
+        </span>
+      `).join("");
+
       document.getElementById("modalDocenteKpis").innerHTML = `
-        <div class="rounded-lg p-3 border-t-4 border-[#003366] bg-blue-50/50"><p class="text-[10px] uppercase font-bold text-slate-500">Capacitaciones</p><p class="text-2xl font-extrabold text-[#003366]">${modalRecords.length}</p></div>
-        <div class="rounded-lg p-3 border-t-4 border-emerald-500 bg-emerald-50/50"><p class="text-[10px] uppercase font-bold text-slate-500">Horas acumuladas</p><p class="text-2xl font-extrabold text-emerald-700">${totalHoras}</p></div>
-        <div class="rounded-lg p-3 border-t-4 border-[#FFC000] bg-yellow-50/50"><p class="text-[10px] uppercase font-bold text-slate-500">Acciones distintas</p><p class="text-2xl font-extrabold text-[#003366]">${new Set(modalRecords.map(r => r.Nombre_Capacitacion)).size}</p></div>`;
+        <div class="rounded-lg p-3 border-t-4 border-[#003366] bg-blue-50/50">
+          <p class="text-[10px] uppercase font-bold text-slate-500">Capacitaciones</p>
+          <p class="text-2xl font-extrabold text-[#003366]">${modalRecords.length}</p>
+        </div>
+        <div class="rounded-lg p-3 border-t-4 border-emerald-500 bg-emerald-50/50">
+          <p class="text-[10px] uppercase font-bold text-slate-500">Horas acumuladas</p>
+          <p class="text-2xl font-extrabold text-emerald-700">${totalHoras}</p>
+        </div>
+        <div class="rounded-lg p-3 border-t-4 border-[#FFC000] bg-yellow-50/50 sm:col-span-2 lg:col-span-2 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <p class="text-[10px] uppercase font-bold text-slate-500">Por Dirección Organizadora</p>
+            <span class="text-[10px] text-amber-700 font-semibold">${dirMap.size} ${dirMap.size === 1 ? "unidad" : "unidades"}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+            ${dirBadgesHtml || '<span class="text-xs text-slate-400">Sin especificar</span>'}
+          </div>
+        </div>`;
 
       document.getElementById("modalDocenteTabla").innerHTML = modalRecords.map((r, i) => `
         <tr class="hover:bg-blue-50/60">
@@ -2234,6 +2282,14 @@
         ["Jornada", profile.Jornada],
         ["Total capacitaciones", modalRecords.length],
         ["Total horas", totalHoras],
+        ["Por Dirección", (() => {
+          const map = {};
+          modalRecords.forEach(r => {
+            const tag = getDireccionAcronym(r.Direccion);
+            map[tag] = (map[tag] || 0) + 1;
+          });
+          return Object.entries(map).map(([k, v]) => `${k}: ${v}`).join(" · ");
+        })()],
         [],
         ["N°", "Acción Formativa", "Dirección", "Fecha", "Horas"],
         ...modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Direccion || "-", r.Fecha, Number(r.Horas_Curso) || 0])
@@ -2274,7 +2330,15 @@
           ["Departamento", profile.Departamento],
           ["Categoría / Contratación", (profile.Categoria || "Sin especificar") + " · " + (profile.Tipo_Contratacion || "Sin especificar")],
           ["Jornada", profile.Jornada],
-          ["Total", modalRecords.length + " capacitaciones · " + totalHoras + " horas"]
+          ["Total", modalRecords.length + " capacitaciones · " + totalHoras + " horas"],
+          ["Por Dirección", (() => {
+            const map = {};
+            modalRecords.forEach(r => {
+              const tag = getDireccionAcronym(r.Direccion);
+              map[tag] = (map[tag] || 0) + 1;
+            });
+            return Object.entries(map).map(([k, v]) => `${k}: ${v}`).join(" · ");
+          })()]
         ]
       });
 
