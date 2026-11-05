@@ -345,8 +345,9 @@
   </main>
 
   <!-- FICHA INDIVIDUAL DEL DOCENTE (MODAL) -->
+    <!-- FICHA INDIVIDUAL DEL DOCENTE (MODAL) -->
   <div id="docenteModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4" onclick="if (event.target === this) closeDocenteModal()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border-t-4 border-[#FFC000]">
+    <div id="docenteModalCard" class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border-t-4 border-[#FFC000]">
       <div class="bg-[#003366] text-white px-6 py-4 flex items-start justify-between gap-4">
         <div>
           <p class="text-[11px] uppercase tracking-wider text-[#FFC000] font-bold">Ficha Individual del Docente · Historial completo</p>
@@ -355,7 +356,7 @@
         </div>
         <button onclick="closeDocenteModal()" class="text-white/80 hover:text-white text-2xl leading-none" title="Cerrar">&times;</button>
       </div>
-      <div class="p-6 overflow-y-auto space-y-4">
+      <div id="docenteModalBody" class="p-6 overflow-y-auto space-y-4">
         <div id="modalDocenteInfo" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs"></div>
         <div id="modalDocenteKpis" class="grid grid-cols-3 gap-3"></div>
         <div class="overflow-x-auto border border-slate-200 rounded-lg">
@@ -373,7 +374,11 @@
         </div>
         <p class="text-[11px] text-slate-400">La ficha muestra todas las capacitaciones del docente en los archivos cargados, sin importar los filtros activos.</p>
       </div>
-      <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap justify-end gap-2">
+      <div id="docenteModalFooter" class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap justify-end gap-2">
+        <button id="btnExportDocenteJPG" onclick="exportDocenteJPG()" class="bg-[#003366] hover:bg-[#002244] text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm transition flex items-center gap-1.5" title="Exportar ficha individual como imagen JPG en alta resolución">
+          <svg class="w-3.5 h-3.5 text-[#FFC000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          Descargar JPG
+        </button>
         <button onclick="exportDocenteExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm transition">Descargar Excel</button>
         <button onclick="exportDocentePDF()" class="bg-[#D31145] hover:bg-rose-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm transition">Descargar PDF</button>
         <button onclick="closeDocenteModal()" class="bg-white border border-slate-300 hover:bg-slate-100 text-[#003366] text-xs font-bold px-3.5 py-2 rounded-lg transition">Cerrar</button>
@@ -1094,6 +1099,13 @@
     // =========================================================================
     function aggregateToUnique(data) {
       const uniqueMap = new Map();
+      const isBetterVal = (newV, curV, preferNonIpsd = false) => {
+        if (!newV || newV === "Sin especificar" || newV === "No especificado") return false;
+        if (!curV || curV === "Sin especificar" || curV === "No especificado") return true;
+        if (preferNonIpsd && (curV === "IPSD" || curV === "Instituto de Profesionalización y Superación Docente (IPSD)") && newV !== "IPSD") return true;
+        return false;
+      };
+
       data.forEach(r => {
         const key = getDocenteKey(r);
         if (!uniqueMap.has(key)) {
@@ -1103,9 +1115,20 @@
         item.count += 1;
         item.Horas_Curso += Number(r.Horas_Curso) || 0;
         item.items.push({ t: r.Nombre_Capacitacion, f: r.Fecha, o: r.Fecha_Orden });
+
         // Preferir el N° de empleado real y un correo válido si aparecen en otra fila
         if (!isRealEmployeeId(item.ID_Docente) && isRealEmployeeId(r.ID_Docente)) item.ID_Docente = r.ID_Docente;
         if (!isValidEmail(item.Correo) && isValidEmail(r.Correo)) item.Correo = r.Correo;
+
+        // Priorizar unidades académicas específicas y evitar que se quede "IPSD" si en otra fila está su adscripción real
+        if (isBetterVal(r.Direccion, item.Direccion, true)) item.Direccion = r.Direccion;
+        if (isBetterVal(r.Centro_Regional, item.Centro_Regional)) item.Centro_Regional = r.Centro_Regional;
+        if (isBetterVal(r.Facultad, item.Facultad)) item.Facultad = r.Facultad;
+        if (isBetterVal(r.Carrera, item.Carrera)) item.Carrera = r.Carrera;
+        if (isBetterVal(r.Departamento, item.Departamento)) item.Departamento = r.Departamento;
+        if (isBetterVal(r.Tipo_Contratacion, item.Tipo_Contratacion)) item.Tipo_Contratacion = r.Tipo_Contratacion;
+        if (isBetterVal(r.Jornada, item.Jornada)) item.Jornada = r.Jornada;
+        if (isBetterVal(r.Genero, item.Genero)) item.Genero = r.Genero;
       });
 
       return Array.from(uniqueMap.values()).map(item => {
@@ -1115,8 +1138,8 @@
         const { items, ...rest } = item;
         return {
           ...rest,
-          Nombre_Capacitacion: sorted.map((x, i) => `${i + 1}. ${x.t}`).join("\n"),
-          Fecha: sorted.map((x, i) => `${i + 1}. ${x.f}`).join("\n")
+          Nombre_Capacitacion: sorted.map((x, i) => (i + 1) + ". " + x.t).join("\n"),
+          Fecha: sorted.map((x, i) => (i + 1) + ". " + x.f).join("\n")
         };
       });
     }
@@ -2054,24 +2077,62 @@
     // --- (7) Ficha individual del docente ---
     let modalRecords = [];
 
+    // Resolver de manera inteligente los datos del perfil del docente a partir de todos sus registros
+    function resolveDocenteProfile(records) {
+      if (!records || records.length === 0) return {};
+      const baseWithId = records.find(r => isRealEmployeeId(r.ID_Docente));
+      const base = baseWithId || records[0];
+
+      const pickBest = (field, preferNonIpsd = false) => {
+        for (const r of records) {
+          const v = r[field];
+          if (v && v !== "Sin especificar" && v !== "No especificado") {
+            if (preferNonIpsd && (v === "IPSD" || v === "Instituto de Profesionalización y Superación Docente (IPSD)")) continue;
+            return v;
+          }
+        }
+        for (const r of records) {
+          const v = r[field];
+          if (v && v !== "Sin especificar" && v !== "No especificado") return v;
+        }
+        return base[field] || "Sin especificar";
+      };
+
+      const correo = (records.find(r => isValidEmail(r.Correo)) || base).Correo;
+      const idDocente = (records.find(r => isRealEmployeeId(r.ID_Docente)) || base).ID_Docente;
+
+      return {
+        ...base,
+        ID_Docente: idDocente,
+        Correo: correo,
+        Genero: pickBest("Genero"),
+        Direccion: pickBest("Direccion", true),
+        Centro_Regional: pickBest("Centro_Regional"),
+        Facultad: pickBest("Facultad"),
+        Carrera: pickBest("Carrera"),
+        Departamento: pickBest("Departamento"),
+        Tipo_Contratacion: pickBest("Tipo_Contratacion"),
+        Jornada: pickBest("Jornada")
+      };
+    }
+
     function openDocenteModal(key) {
       modalRecords = rawData
         .filter(r => getDocenteKey(r) === key)
         .sort((a, b) => (a.Fecha_Orden ?? Number.MAX_SAFE_INTEGER) - (b.Fecha_Orden ?? Number.MAX_SAFE_INTEGER));
       if (modalRecords.length === 0) return;
 
-      const base = modalRecords.find(r => isRealEmployeeId(r.ID_Docente)) || modalRecords[0];
-      const correo = (modalRecords.find(r => isValidEmail(r.Correo)) || base).Correo;
+      const profile = resolveDocenteProfile(modalRecords);
       const totalHoras = modalRecords.reduce((s, r) => s + (Number(r.Horas_Curso) || 0), 0);
 
-      document.getElementById("modalDocenteNombre").textContent = base.Nombre_Docente;
+      document.getElementById("modalDocenteNombre").textContent = profile.Nombre_Docente;
       document.getElementById("modalDocenteSub").textContent =
-        `N° Empleado: ${isRealEmployeeId(base.ID_Docente) ? base.ID_Docente : "No registrado"} · ${correo || "-"}`;
+        "N° Empleado: " + (isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado") + " · " + (profile.Correo || "-");
 
       const info = [
-        ["Género", base.Genero], ["Dirección", base.Direccion], ["Centro Regional", base.Centro_Regional],
-        ["Facultad", base.Facultad], ["Carrera", base.Carrera], ["Departamento", base.Departamento],
-        ["Tipo de Contratación", base.Tipo_Contratacion], ["Jornada", base.Jornada]
+        ["Género", profile.Genero], ["Dirección", profile.Direccion], ["Centro Regional", profile.Centro_Regional],
+        ["Facultad", profile.Facultad], ["Carrera", profile.Carrera], ["Departamento", profile.Departamento],
+        ["Tipo de Contratación", profile.Tipo_Contratacion], ["Jornada", profile.Jornada]
       ];
       document.getElementById("modalDocenteInfo").innerHTML = info.map(([k, v]) => `
         <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
@@ -2107,28 +2168,28 @@
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeDocenteModal(); });
 
     function getModalFileBase() {
-      const base = modalRecords.find(r => isRealEmployeeId(r.ID_Docente)) || modalRecords[0];
-      const id = isRealEmployeeId(base.ID_Docente) ? base.ID_Docente : stripAccents(base.Nombre_Docente).replace(/[^a-zA-Z0-9]+/g, "_");
-      return `Historial_${id}`;
+      const profile = resolveDocenteProfile(modalRecords);
+      const id = isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : stripAccents(profile.Nombre_Docente).replace(/[^a-zA-Z0-9]+/g, "_");
+      return "Historial_" + id;
     }
 
     function exportDocenteExcel() {
       if (modalRecords.length === 0) return;
-      const base = modalRecords.find(r => isRealEmployeeId(r.ID_Docente)) || modalRecords[0];
+      const profile = resolveDocenteProfile(modalRecords);
       const totalHoras = modalRecords.reduce((s, r) => s + (Number(r.Horas_Curso) || 0), 0);
       const aoa = [
         ["FICHA INDIVIDUAL DE CAPACITACIONES - IPSD UNAH"],
-        ["Nombre", base.Nombre_Docente],
-        ["N° Empleado", isRealEmployeeId(base.ID_Docente) ? base.ID_Docente : "No registrado"],
-        ["Correo", (modalRecords.find(r => isValidEmail(r.Correo)) || base).Correo],
-        ["Género", base.Genero],
-        ["Dirección", base.Direccion],
-        ["Centro Regional", base.Centro_Regional],
-        ["Facultad", base.Facultad],
-        ["Carrera", base.Carrera],
-        ["Departamento", base.Departamento],
-        ["Tipo de Contratación", base.Tipo_Contratacion],
-        ["Jornada", base.Jornada],
+        ["Nombre", profile.Nombre_Docente],
+        ["N° Empleado", isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado"],
+        ["Correo", profile.Correo],
+        ["Género", profile.Genero],
+        ["Dirección", profile.Direccion],
+        ["Centro Regional", profile.Centro_Regional],
+        ["Facultad", profile.Facultad],
+        ["Carrera", profile.Carrera],
+        ["Departamento", profile.Departamento],
+        ["Tipo de Contratación", profile.Tipo_Contratacion],
+        ["Jornada", profile.Jornada],
         ["Total capacitaciones", modalRecords.length],
         ["Total horas", totalHoras],
         [],
@@ -2139,14 +2200,14 @@
       setAutoWidth(ws, aoa);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Historial");
-      XLSX.writeFile(wb, `${getModalFileBase()}.xlsx`);
+      XLSX.writeFile(wb, getModalFileBase() + ".xlsx");
     }
 
     function exportDocentePDF() {
       if (modalRecords.length === 0) return;
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF("p", "mm", "letter");
-      const base = modalRecords.find(r => isRealEmployeeId(r.ID_Docente)) || modalRecords[0];
+      const profile = resolveDocenteProfile(modalRecords);
       const totalHoras = modalRecords.reduce((s, r) => s + (Number(r.Horas_Curso) || 0), 0);
 
       doc.setFillColor(0, 51, 102);
@@ -2156,7 +2217,7 @@
       doc.text("FICHA INDIVIDUAL DE CAPACITACIONES - IPSD UNAH", 14, 9);
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(14);
-      doc.text(base.Nombre_Docente, 14, 17);
+      doc.text(profile.Nombre_Docente, 14, 17);
 
       doc.autoTable({
         startY: 28,
@@ -2164,27 +2225,95 @@
         styles: { fontSize: 8.5, cellPadding: 1.2 },
         columnStyles: { 0: { fontStyle: "bold", cellWidth: 45, textColor: [0, 51, 102] } },
         body: [
-          ["N° Empleado", isRealEmployeeId(base.ID_Docente) ? base.ID_Docente : "No registrado"],
-          ["Correo", (modalRecords.find(r => isValidEmail(r.Correo)) || base).Correo],
-          ["Dirección", base.Direccion],
-          ["Centro Regional", base.Centro_Regional],
-          ["Facultad / Carrera", `${base.Facultad} / ${base.Carrera}`],
-          ["Departamento", base.Departamento],
-          ["Contratación / Jornada", `${base.Tipo_Contratacion} / ${base.Jornada}`],
-          ["Total", `${modalRecords.length} capacitaciones · ${totalHoras} horas`]
+          ["N° Empleado", isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado"],
+          ["Correo", profile.Correo],
+          ["Dirección", profile.Direccion],
+          ["Centro Regional", profile.Centro_Regional],
+          ["Facultad / Carrera", profile.Facultad + " / " + profile.Carrera],
+          ["Departamento", profile.Departamento],
+          ["Contratación / Jornada", profile.Tipo_Contratacion + " / " + profile.Jornada],
+          ["Total", modalRecords.length + " capacitaciones · " + totalHoras + " horas"]
         ]
       });
 
       doc.autoTable({
         startY: doc.lastAutoTable.finalY + 6,
         head: [["N°", "Acción Formativa", "Fecha", "Horas"]],
-        body: modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Fecha, `${r.Horas_Curso}h`]),
+        body: modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Fecha, r.Horas_Curso + "h"]),
         styles: { fontSize: 8, cellPadding: 1.8 },
         headStyles: { fillColor: [0, 51, 102] },
         columnStyles: { 0: { cellWidth: 10 }, 2: { cellWidth: 48 }, 3: { cellWidth: 16, halign: "right" } }
       });
 
-      doc.save(`${getModalFileBase()}.pdf`);
+      doc.save(getModalFileBase() + ".pdf");
+    }
+
+    async function exportDocenteJPG() {
+      if (!modalRecords || modalRecords.length === 0) return;
+      const card = document.getElementById("docenteModalCard");
+      const body = document.getElementById("docenteModalBody");
+      const footer = document.getElementById("docenteModalFooter");
+      const closeBtn = card ? card.querySelector("button[title='Cerrar']") : null;
+      if (!card || !body) return;
+
+      const btn = document.getElementById("btnExportDocenteJPG");
+      const origBtnHtml = btn ? btn.innerHTML : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<svg class="animate-spin -ml-1 mr-1.5 h-3.5 w-3.5 text-[#FFC000] inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>Generando...';
+      }
+
+      // Guardar estilos para permitir desplegar la ficha completa sin barras de desplazamiento durante la captura
+      const prevCardMaxH = card.style.maxHeight;
+      const prevCardOverflow = card.style.overflow;
+      const prevCardHeight = card.style.height;
+      const prevBodyMaxH = body.style.maxHeight;
+      const prevBodyOverflow = body.style.overflow;
+      const prevFooterDisplay = footer ? footer.style.display : "";
+      const prevCloseVisibility = closeBtn ? closeBtn.style.visibility : "";
+
+      try {
+        card.style.maxHeight = "none";
+        card.style.overflow = "visible";
+        card.style.height = "auto";
+        body.style.maxHeight = "none";
+        body.style.overflow = "visible";
+        if (closeBtn) closeBtn.style.visibility = "hidden";
+        if (footer) footer.style.display = "none";
+
+        // Pausa breve para recalcular geometría
+        await new Promise(r => setTimeout(r, 60));
+
+        const canvas = await html2canvas(card, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+          logging: false
+        });
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.95);
+        const link = document.createElement("a");
+        link.download = getModalFileBase() + ".jpg";
+        link.href = imgData;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        console.error("Error al exportar ficha en JPG:", err);
+        alert("Ocurrió un error al generar la imagen JPG de la ficha.");
+      } finally {
+        card.style.maxHeight = prevCardMaxH;
+        card.style.overflow = prevCardOverflow;
+        card.style.height = prevCardHeight;
+        body.style.maxHeight = prevBodyMaxH;
+        body.style.overflow = prevBodyOverflow;
+        if (closeBtn) closeBtn.style.visibility = prevCloseVisibility;
+        if (footer) footer.style.display = prevFooterDisplay;
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origBtnHtml;
+        }
+      }
     }
 
     function exportVisibleTableToExcel() {
