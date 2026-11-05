@@ -365,6 +365,7 @@
               <tr>
                 <th class="py-2 px-3">N°</th>
                 <th class="py-2 px-3">Acción Formativa</th>
+                <th class="py-2 px-3">Dirección</th>
                 <th class="py-2 px-3">Fecha</th>
                 <th class="py-2 px-3 text-right">Horas</th>
               </tr>
@@ -2130,9 +2131,10 @@
         "N° Empleado: " + (isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado") + " · " + (profile.Correo || "-");
 
       const info = [
-        ["Género", profile.Genero], ["Dirección", profile.Direccion], ["Centro Regional", profile.Centro_Regional],
-        ["Facultad", profile.Facultad], ["Carrera", profile.Carrera], ["Departamento", profile.Departamento],
-        ["Tipo de Contratación", profile.Tipo_Contratacion], ["Jornada", profile.Jornada]
+        ["Género", profile.Genero], ["Centro Regional", profile.Centro_Regional],
+        ["Facultad", profile.Facultad], ["Carrera", profile.Carrera],
+        ["Departamento", profile.Departamento], ["Tipo de Contratación", profile.Tipo_Contratacion],
+        ["Jornada", profile.Jornada]
       ];
       document.getElementById("modalDocenteInfo").innerHTML = info.map(([k, v]) => `
         <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
@@ -2148,9 +2150,10 @@
       document.getElementById("modalDocenteTabla").innerHTML = modalRecords.map((r, i) => `
         <tr class="hover:bg-blue-50/60">
           <td class="py-2 px-3 font-bold text-slate-400">${i + 1}</td>
-          <td class="py-2 px-3 text-slate-700">${escapeHtml(r.Nombre_Capacitacion)}</td>
-          <td class="py-2 px-3 text-slate-500">${escapeHtml(r.Fecha)}</td>
-          <td class="py-2 px-3 text-right font-semibold text-emerald-700">${r.Horas_Curso}h</td>
+          <td class="py-2 px-3 font-medium text-slate-800">${escapeHtml(r.Nombre_Capacitacion)}</td>
+          <td class="py-2 px-3 text-slate-600">${escapeHtml(r.Direccion || "-")}</td>
+          <td class="py-2 px-3 text-slate-500 whitespace-nowrap">${escapeHtml(r.Fecha)}</td>
+          <td class="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">${r.Horas_Curso}h</td>
         </tr>`).join("");
 
       const modal = document.getElementById("docenteModal");
@@ -2183,7 +2186,6 @@
         ["N° Empleado", isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado"],
         ["Correo", profile.Correo],
         ["Género", profile.Genero],
-        ["Dirección", profile.Direccion],
         ["Centro Regional", profile.Centro_Regional],
         ["Facultad", profile.Facultad],
         ["Carrera", profile.Carrera],
@@ -2193,8 +2195,8 @@
         ["Total capacitaciones", modalRecords.length],
         ["Total horas", totalHoras],
         [],
-        ["N°", "Acción Formativa", "Fecha", "Horas"],
-        ...modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Fecha, Number(r.Horas_Curso) || 0])
+        ["N°", "Acción Formativa", "Dirección", "Fecha", "Horas"],
+        ...modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Direccion || "-", r.Fecha, Number(r.Horas_Curso) || 0])
       ];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       setAutoWidth(ws, aoa);
@@ -2227,7 +2229,6 @@
         body: [
           ["N° Empleado", isRealEmployeeId(profile.ID_Docente) ? profile.ID_Docente : "No registrado"],
           ["Correo", profile.Correo],
-          ["Dirección", profile.Direccion],
           ["Centro Regional", profile.Centro_Regional],
           ["Facultad / Carrera", profile.Facultad + " / " + profile.Carrera],
           ["Departamento", profile.Departamento],
@@ -2238,11 +2239,11 @@
 
       doc.autoTable({
         startY: doc.lastAutoTable.finalY + 6,
-        head: [["N°", "Acción Formativa", "Fecha", "Horas"]],
-        body: modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Fecha, r.Horas_Curso + "h"]),
+        head: [["N°", "Acción Formativa", "Dirección", "Fecha", "Horas"]],
+        body: modalRecords.map((r, i) => [i + 1, r.Nombre_Capacitacion, r.Direccion || "-", r.Fecha, r.Horas_Curso + "h"]),
         styles: { fontSize: 8, cellPadding: 1.8 },
         headStyles: { fillColor: [0, 51, 102] },
-        columnStyles: { 0: { cellWidth: 10 }, 2: { cellWidth: 48 }, 3: { cellWidth: 16, halign: "right" } }
+        columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 70 }, 2: { cellWidth: 46 }, 3: { cellWidth: 46 }, 4: { cellWidth: 16, halign: "right" } }
       });
 
       doc.save(getModalFileBase() + ".pdf");
